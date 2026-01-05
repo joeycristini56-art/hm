@@ -1,0 +1,260 @@
+# ============================================================================
+# Xoron iOS Build Workflow
+# Builds libxoron.dylib for iOS ARM64 (iOS 15.0+)
+# ============================================================================
+
+name: Build iOS
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - '.github/workflows/build-ios.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (Debug/Release)'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Debug
+          - Release
+
+env:
+  XORON_VERSION: "2.0.0"
+  IOS_DEPLOYMENT_TARGET: "15.0"
+
+jobs:
+  build-ios:
+    name: Build iOS ARM64
+    runs-on: macos-14  # macOS 14 (Sonoma) with Xcode 15+
+    
+    strategy:
+      matrix:
+        build_type: [Release]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja openssl@3
+          echo "OpenSSL installed at: $(brew --prefix openssl@3)"
+      
+      - name: Cache OpenSSL for iOS
+        id: cache-openssl-ios
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/openssl-ios/install
+          key: openssl-3.2.0-ios-arm64-${{ env.IOS_DEPLOYMENT_TARGET }}-v4
+      
+      - name: Download and build OpenSSL for iOS
+        if: steps.cache-openssl-ios.outputs.cache-hit != 'true'
+        run: |
+          OPENSSL_VERSION="3.2.0"
+          INSTALL_DIR="${{ github.workspace }}/openssl-ios/install"
+          mkdir -p "$INSTALL_DIR"
+          
+          # Download OpenSSL source
+          cd /tmp
+          curl -LO https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
+          tar xzf openssl-${OPENSSL_VERSION}.tar.gz
+          cd openssl-${OPENSSL_VERSION}
+          
+          # Get iOS SDK path
+          IOS_SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          
+          # Set up cross-compilation environment for iOS
+          # CROSS_TOP and CROSS_SDK are required by OpenSSL's ios64-xcrun target
+          export CROSS_TOP=$(xcode-select --print-path)/Platforms/iPhoneOS.platform/Developer
+          export CROSS_SDK=$(basename "$IOS_SDK_PATH")
+          
+          # Configure OpenSSL for iOS ARM64 with explicit sysroot
+          ./Configure ios64-xcrun \
+            --prefix="$INSTALL_DIR" \
+            --openssldir="$INSTALL_DIR/ssl" \
+            -isysroot "$IOS_SDK_PATH" \
+            no-shared \
+            no-tests \
+            no-ui-console \
+            no-engine \
+            no-comp \
+            no-dso \
+            no-apps \
+            no-asm \
+            -mios-version-min=${{ env.IOS_DEPLOYMENT_TARGET }}
+          
+          # Build libraries only
+          make -j$(sysctl -n hw.ncpu) build_libs
+          
+          # Install libraries and headers manually
+          mkdir -p "$INSTALL_DIR/lib" "$INSTALL_DIR/include"
+          cp libssl.a libcrypto.a "$INSTALL_DIR/lib/"
+          cp -r include/openssl "$INSTALL_DIR/include/"
+          
+          echo "=== OpenSSL iOS build complete ==="
+          ls -la "$INSTALL_DIR/lib/"
+          ls -la "$INSTALL_DIR/include/openssl/" | head -10
+      
+      - name: Configure CMake for iOS
+        run: |
+          cmake -B build -S src \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ env.IOS_DEPLOYMENT_TARGET }} \
+            -DCMAKE_OSX_SYSROOT=$(xcrun --sdk iphoneos --show-sdk-path) \
+            -DXORON_IOS_BUILD=ON \
+            -DXORON_IOS_DEPLOYMENT_TARGET=${{ env.IOS_DEPLOYMENT_TARGET }} \
+            -DXORON_OPENSSL_ROOT=${{ github.workspace }}/openssl-ios/install \
+            -DCMAKE_C_COMPILER=$(xcrun --sdk iphoneos --find clang) \
+            -DCMAKE_CXX_COMPILER=$(xcrun --sdk iphoneos --find clang++)
+      
+      - name: Build
+        run: |
+          cmake --build build --config ${{ matrix.build_type }} -j$(sysctl -n hw.ncpu)
+      
+      - name: Verify build output
+        run: |
+          echo "=== Build Output ==="
+          ls -la build/
+          
+          # Find the dylib
+          DYLIB_PATH=$(find build -name "libxoron.dylib" -type f | head -1)
+          
+          if [ -z "$DYLIB_PATH" ]; then
+            echo "ERROR: libxoron.dylib not found!"
+            exit 1
+          fi
+          
+          echo "=== Library Info ==="
+          file "$DYLIB_PATH"
+          
+          echo "=== Library Size ==="
+          ls -lh "$DYLIB_PATH"
+          
+          echo "=== Architecture ==="
+          lipo -info "$DYLIB_PATH"
+          
+          echo "=== Minimum iOS Version ==="
+          otool -l "$DYLIB_PATH" | grep -A 3 LC_VERSION_MIN_IPHONEOS || \
+          otool -l "$DYLIB_PATH" | grep -A 5 LC_BUILD_VERSION
+          
+          echo "=== Exported Symbols (first 20) ==="
+          nm -gU "$DYLIB_PATH" | head -20
+      
+      - name: Create artifact directory
+        run: |
+          mkdir -p artifacts/ios-arm64
+          
+          # Copy library only (no header)
+          cp build/libxoron.dylib artifacts/ios-arm64/
+          
+          # Create info file
+          cat > artifacts/ios-arm64/BUILD_INFO.txt << EOF
+          Xoron iOS Build Information
+          ===========================
+          Version: ${{ env.XORON_VERSION }}
+          Build Type: ${{ matrix.build_type }}
+          Architecture: arm64
+          Minimum iOS Version: ${{ env.IOS_DEPLOYMENT_TARGET }}
+          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Commit: ${{ github.sha }}
+          Runner: ${{ runner.os }} ${{ runner.arch }}
+          Xcode: $(xcodebuild -version | head -1)
+          EOF
+          
+          echo "=== Artifact Contents ==="
+          ls -la artifacts/ios-arm64/
+      
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xoron-ios-arm64-${{ matrix.build_type }}
+          path: artifacts/ios-arm64/
+          retention-days: 30
+      
+      - name: Create Release Asset (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cd artifacts
+          zip -r xoron-ios-arm64-${{ github.ref_name }}.zip ios-arm64/
+          echo "Release asset created: xoron-ios-arm64-${{ github.ref_name }}.zip"
+
+  # Optional: Build for iOS Simulator (x86_64 + arm64)
+  build-ios-simulator:
+    name: Build iOS Simulator
+    runs-on: macos-14
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja
+      
+      - name: Download and build OpenSSL for iOS Simulator
+        run: |
+          mkdir -p ${{ github.workspace }}/openssl-sim
+          cd ${{ github.workspace }}/openssl-sim
+          
+          OPENSSL_VERSION="3.2.0"
+          curl -LO https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
+          tar xzf openssl-${OPENSSL_VERSION}.tar.gz
+          cd openssl-${OPENSSL_VERSION}
+          
+          # Build for iOS Simulator ARM64
+          ./Configure iossimulator-xcrun \
+            --prefix=${{ github.workspace }}/openssl-sim/install \
+            no-shared no-tests no-ui-console no-engine \
+            -mios-simulator-version-min=${{ env.IOS_DEPLOYMENT_TARGET }}
+          
+          make -j$(sysctl -n hw.ncpu)
+          make install_sw
+      
+      - name: Configure CMake for iOS Simulator
+        run: |
+          cmake -B build -S src \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ env.IOS_DEPLOYMENT_TARGET }} \
+            -DCMAKE_OSX_SYSROOT=$(xcrun --sdk iphonesimulator --show-sdk-path) \
+            -DXORON_IOS_BUILD=ON \
+            -DXORON_OPENSSL_ROOT=${{ github.workspace }}/openssl-sim/install
+      
+      - name: Build
+        run: |
+          cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+      
+      - name: Upload Simulator artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xoron-ios-simulator
+          path: build/libxoron.dylib
+          retention-days: 30
