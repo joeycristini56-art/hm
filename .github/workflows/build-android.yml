@@ -1,0 +1,279 @@
+# ============================================================================
+# Xoron Android Build Workflow
+# Builds libxoron.so for Android (API 29+ / Android 10+)
+# Supports: arm64-v8a, armeabi-v7a, x86_64, x86
+# ============================================================================
+
+name: Build Android
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - '.github/workflows/build-android.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (Debug/Release)'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Debug
+          - Release
+      abi:
+        description: 'Android ABI (all for all ABIs)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - arm64-v8a
+          - armeabi-v7a
+          - x86_64
+          - x86
+
+env:
+  XORON_VERSION: "2.0.0"
+  ANDROID_MIN_API: "29"  # Android 10
+  NDK_VERSION: "26.1.10909125"
+
+jobs:
+  build-android:
+    name: Build Android ${{ matrix.abi }}
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
+        build_type: [Release]
+        include:
+          - abi: arm64-v8a
+            openssl_target: android-arm64
+          - abi: armeabi-v7a
+            openssl_target: android-arm
+          - abi: x86_64
+            openssl_target: android-x86_64
+          - abi: x86
+            openssl_target: android-x86
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;${{ env.NDK_VERSION }}'
+      
+      - name: Set NDK environment
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          echo "NDK_PATH=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+      
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+      
+      - name: Cache OpenSSL
+        id: cache-openssl
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/openssl-android-${{ matrix.abi }}
+          key: openssl-3.2.0-android-${{ matrix.abi }}-api${{ env.ANDROID_MIN_API }}-v2
+      
+      - name: Download and Build OpenSSL for Android
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        run: |
+          OPENSSL_VERSION="3.2.0"
+          INSTALL_DIR="${{ github.workspace }}/openssl-android-${{ matrix.abi }}/install"
+          mkdir -p "$INSTALL_DIR"
+          
+          # Download OpenSSL source
+          cd /tmp
+          curl -LO https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
+          tar xzf openssl-${OPENSSL_VERSION}.tar.gz
+          cd openssl-${OPENSSL_VERSION}
+          
+          # Set up NDK toolchain environment
+          export ANDROID_NDK_ROOT=${{ env.NDK_PATH }}
+          export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          
+          # Configure OpenSSL for Android
+          ./Configure ${{ matrix.openssl_target }} \
+            -D__ANDROID_API__=${{ env.ANDROID_MIN_API }} \
+            --prefix="$INSTALL_DIR" \
+            --openssldir="$INSTALL_DIR/ssl" \
+            no-shared \
+            no-tests \
+            no-ui-console \
+            no-engine \
+            no-comp \
+            no-dso
+          
+          # Build and install
+          make -j$(nproc)
+          make install_sw
+          
+          echo "=== OpenSSL build complete for ${{ matrix.abi }} ==="
+          ls -la "$INSTALL_DIR/lib/"
+          ls -la "$INSTALL_DIR/include/openssl/" | head -10
+      
+      - name: Configure CMake for Android
+        run: |
+          cmake -B build -S src \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_TOOLCHAIN_FILE=${{ env.NDK_PATH }}/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_PLATFORM=android-${{ env.ANDROID_MIN_API }} \
+            -DANDROID_STL=c++_shared \
+            -DXORON_ANDROID_BUILD=ON \
+            -DXORON_ANDROID_ABI=${{ matrix.abi }} \
+            -DXORON_ANDROID_PLATFORM=android-${{ env.ANDROID_MIN_API }} \
+            -DXORON_OPENSSL_ROOT=${{ github.workspace }}/openssl-android-${{ matrix.abi }}/install
+      
+      - name: Build
+        run: |
+          cmake --build build --config ${{ matrix.build_type }} -j$(nproc)
+      
+      - name: Verify build output
+        run: |
+          echo "=== Build Output ==="
+          ls -la build/
+          
+          # Find the .so file
+          SO_PATH=$(find build -name "libxoron.so" -type f | head -1)
+          
+          if [ -z "$SO_PATH" ]; then
+            echo "ERROR: libxoron.so not found!"
+            exit 1
+          fi
+          
+          echo "=== Library Info ==="
+          file "$SO_PATH"
+          
+          echo "=== Library Size ==="
+          ls -lh "$SO_PATH"
+          
+          echo "=== ELF Header ==="
+          readelf -h "$SO_PATH" | head -20
+          
+          echo "=== Dynamic Dependencies ==="
+          readelf -d "$SO_PATH" | grep NEEDED || true
+          
+          echo "=== Exported Symbols (first 20) ==="
+          nm -D "$SO_PATH" | grep " T " | head -20
+      
+      - name: Create artifact directory
+        run: |
+          mkdir -p artifacts/android-${{ matrix.abi }}
+          
+          # Copy library only (no header)
+          cp build/libxoron.so artifacts/android-${{ matrix.abi }}/
+          
+          # Copy STL if using shared
+          if [ -f "${{ env.NDK_PATH }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${{ matrix.abi == 'arm64-v8a' && 'aarch64-linux-android' || matrix.abi == 'armeabi-v7a' && 'arm-linux-androideabi' || matrix.abi == 'x86_64' && 'x86_64-linux-android' || 'i686-linux-android' }}/libc++_shared.so" ]; then
+            echo "Copying libc++_shared.so"
+          fi
+          
+          # Create info file
+          cat > artifacts/android-${{ matrix.abi }}/BUILD_INFO.txt << EOF
+          Xoron Android Build Information
+          ================================
+          Version: ${{ env.XORON_VERSION }}
+          Build Type: ${{ matrix.build_type }}
+          ABI: ${{ matrix.abi }}
+          Minimum Android API: ${{ env.ANDROID_MIN_API }} (Android 10)
+          NDK Version: ${{ env.NDK_VERSION }}
+          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Commit: ${{ github.sha }}
+          Runner: ${{ runner.os }}
+          EOF
+          
+          echo "=== Artifact Contents ==="
+          ls -la artifacts/android-${{ matrix.abi }}/
+      
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xoron-android-${{ matrix.abi }}-${{ matrix.build_type }}
+          path: artifacts/android-${{ matrix.abi }}/
+          retention-days: 30
+
+  # Combine all ABIs into a single artifact
+  combine-artifacts:
+    name: Combine Android Artifacts
+    runs-on: ubuntu-latest
+    needs: build-android
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: xoron-android-*
+          path: all-artifacts
+      
+      - name: Combine into AAR-like structure
+        run: |
+          mkdir -p combined/jniLibs
+          
+          # Copy each ABI
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            if [ -d "all-artifacts/xoron-android-${abi}-Release" ]; then
+              mkdir -p combined/jniLibs/${abi}
+              cp all-artifacts/xoron-android-${abi}-Release/libxoron.so combined/jniLibs/${abi}/
+            fi
+          done
+          
+          # Copy header to include directory
+          mkdir -p combined/include
+          cp all-artifacts/xoron-android-arm64-v8a-Release/xoron.h combined/include/ 2>/dev/null || \
+          cp all-artifacts/xoron-android-armeabi-v7a-Release/xoron.h combined/include/ 2>/dev/null || true
+          
+          # Create combined info
+          cat > combined/README.txt << EOF
+          Xoron Android Libraries
+          =======================
+          Version: ${{ env.XORON_VERSION }}
+          Minimum Android API: ${{ env.ANDROID_MIN_API }} (Android 10)
+          
+          Directory Structure:
+          - jniLibs/arm64-v8a/libxoron.so   - 64-bit ARM
+          - jniLibs/armeabi-v7a/libxoron.so - 32-bit ARM
+          - jniLibs/x86_64/libxoron.so      - 64-bit x86
+          - jniLibs/x86/libxoron.so         - 32-bit x86
+          - include/xoron.h                  - C/C++ header
+          
+          Usage:
+          1. Copy jniLibs folder to your Android project's app/src/main/
+          2. Load the library in Java: System.loadLibrary("xoron");
+          3. Use JNI to call Xoron functions
+          EOF
+          
+          echo "=== Combined Structure ==="
+          find combined -type f
+      
+      - name: Upload combined artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xoron-android-all-abis
+          path: combined/
+          retention-days: 30
+      
+      - name: Create Release Asset (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cd combined
+          zip -r ../xoron-android-${{ github.ref_name }}.zip .
+          echo "Release asset created: xoron-android-${{ github.ref_name }}.zip"
