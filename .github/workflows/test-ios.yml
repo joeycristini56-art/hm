@@ -1,0 +1,226 @@
+# ============================================================================
+# Xoron iOS Integration Tests Workflow
+# Runs comprehensive integration tests on iOS platform
+# ============================================================================
+
+name: iOS Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - '.github/workflows/test-ios.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - platform
+          - logging
+          - filesystem
+          - memory
+          - performance
+
+env:
+  XORON_VERSION: "2.0.0"
+  IOS_DEPLOYMENT_TARGET: "15.0"
+
+jobs:
+  # Build library first
+  build-ios-library:
+    name: Build iOS Library
+    runs-on: macos-14
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja openssl@3
+      
+      - name: Build OpenSSL for iOS
+        run: |
+          OPENSSL_VERSION="3.2.0"
+          INSTALL_DIR="${{ github.workspace }}/openssl-ios/install"
+          mkdir -p "$INSTALL_DIR"
+          
+          cd /tmp
+          curl -LO https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
+          tar xzf openssl-${OPENSSL_VERSION}.tar.gz
+          cd openssl-${OPENSSL_VERSION}
+          
+          IOS_SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          export CROSS_TOP=$(xcode-select --print-path)/Platforms/iPhoneOS.platform/Developer
+          export CROSS_SDK=$(basename "$IOS_SDK_PATH")
+          
+          ./Configure ios64-xcrun \
+            --prefix="$INSTALL_DIR" \
+            --openssldir="$INSTALL_DIR/ssl" \
+            -isysroot "$IOS_SDK_PATH" \
+            no-shared no-tests no-ui-console no-engine no-comp no-dso no-apps no-asm \
+            -mios-version-min=${{ env.IOS_DEPLOYMENT_TARGET }}
+          
+          make -j$(sysctl -n hw.ncpu) build_libs
+          mkdir -p "$INSTALL_DIR/lib" "$INSTALL_DIR/include"
+          cp libssl.a libcrypto.a "$INSTALL_DIR/lib/"
+          cp -r include/openssl "$INSTALL_DIR/include/"
+      
+      - name: Configure CMake
+        run: |
+          cmake -B build -S src \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ env.IOS_DEPLOYMENT_TARGET }} \
+            -DCMAKE_OSX_SYSROOT=$(xcrun --sdk iphoneos --show-sdk-path) \
+            -DXORON_IOS_BUILD=ON \
+            -DXORON_OPENSSL_ROOT=${{ github.workspace }}/openssl-ios/install \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      
+      - name: Build Library
+        run: |
+          cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+      
+      - name: Upload Library Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xoron-ios-lib
+          path: build/libxoron.dylib
+          retention-days: 1
+
+  # Run integration tests
+  run-ios-tests:
+    name: Run iOS Integration Tests
+    runs-on: macos-14
+    needs: build-ios-library
+    strategy:
+      matrix:
+        test_group: [platform, logging, filesystem, memory, performance]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      
+      - name: Download Library Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xoron-ios-lib
+          path: build/
+      
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja
+      
+      - name: Build Test Suite
+        run: |
+          cd src/src/tests/ios
+          
+          cmake -B build-tests -S . \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ env.IOS_DEPLOYMENT_TARGET }} \
+            -DCMAKE_OSX_SYSROOT=$(xcrun --sdk iphonesimulator --show-sdk-path) \
+            -DXORON_IOS_BUILD=ON \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          
+          cmake --build build-tests --config Debug
+      
+      - name: Run Tests on Simulator
+        run: |
+          # Start iOS Simulator
+          SIMULATOR_ID=$(xcrun simctl list devices | grep "iPhone 15" | head -1 | awk '{print $3}' | tr -d '()')
+          
+          if [ -z "$SIMULATOR_ID" ]; then
+            echo "Creating new iPhone 15 simulator..."
+            SIMULATOR_ID=$(xcrun simctl create "iPhone 15" "com.apple.CoreSimulator.SimDeviceType.iPhone-15")
+          fi
+          
+          # Boot simulator
+          xcrun simctl boot $SIMULATOR_ID || true
+          
+          # Install and run test app
+          cd src/src/tests/ios/build-tests
+          xcrun simctl install $SIMULATOR_ID XoronIOSIntegrationTests.app
+          xcrun simctl launch $SIMULATOR_ID com.xoron.ios.tests
+          
+          # Wait for tests to complete
+          sleep 10
+          
+          # Capture logs
+          xcrun simctl spawn $SIMULATOR_ID log stream --predicate 'subsystem == "com.xoron"' --level debug > test_logs.txt &
+          LOG_PID=$!
+          
+          sleep 5
+          kill $LOG_PID || true
+          
+          # Display results
+          echo "=== Test Results ==="
+          cat test_logs.txt || echo "No logs captured"
+      
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results-${{ matrix.test_group }}
+          path: |
+            src/src/tests/ios/build-tests/test_logs.txt
+            src/src/tests/ios/build-tests/*.log
+          retention-days: 7
+
+  # Summary job
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [run-ios-tests]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+      
+      - name: Generate Summary
+        run: |
+          echo "## iOS Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Groups" >> $GITHUB_STEP_SUMMARY
+          echo "- Platform Detection" >> $GITHUB_STEP_SUMMARY
+          echo "- Logging (NSLog)" >> $GITHUB_STEP_SUMMARY
+          echo "- Filesystem Operations" >> $GITHUB_STEP_SUMMARY
+          echo "- Memory Management" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "All test results are available as workflow artifacts." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Platform" >> $GITHUB_STEP_SUMMARY
+          echo "- iOS 15.0+" >> $GITHUB_STEP_SUMMARY
+          echo "- ARM64 architecture" >> $GITHUB_STEP_SUMMARY
+          echo "- UIKit framework" >> $GITHUB_STEP_SUMMARY
