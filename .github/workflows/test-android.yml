@@ -1,0 +1,286 @@
+# ============================================================================
+# Xoron Android Integration Tests Workflow
+# Runs comprehensive integration tests on Android platform
+# ============================================================================
+
+name: Android Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - '.github/workflows/test-android.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - platform
+          - logging
+          - filesystem
+          - memory
+          - performance
+
+env:
+  XORON_VERSION: "2.0.0"
+  ANDROID_MIN_API: "29"
+  NDK_VERSION: "26.1.10909125"
+  ABI: arm64-v8a
+
+jobs:
+  # Build library first
+  build-android-library:
+    name: Build Android Library
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;${{ env.NDK_VERSION }}'
+      
+      - name: Set NDK environment
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          echo "NDK_PATH=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+      
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+      
+      - name: Build OpenSSL for Android
+        run: |
+          OPENSSL_VERSION="3.2.0"
+          INSTALL_DIR="${{ github.workspace }}/openssl-android-${{ env.ABI }}/install"
+          mkdir -p "$INSTALL_DIR"
+          
+          cd /tmp
+          curl -LO https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz
+          tar xzf openssl-${OPENSSL_VERSION}.tar.gz
+          cd openssl-${OPENSSL_VERSION}
+          
+          export ANDROID_NDK_ROOT=${{ env.NDK_PATH }}
+          export PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          
+          ./Configure android-arm64 \
+            -D__ANDROID_API__=${{ env.ANDROID_MIN_API }} \
+            --prefix="$INSTALL_DIR" \
+            --openssldir="$INSTALL_DIR/ssl" \
+            no-shared no-tests no-ui-console no-engine no-comp no-dso
+          
+          make -j$(nproc)
+          make install_sw
+      
+      - name: Configure CMake
+        run: |
+          cmake -B build -S src \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=${{ env.NDK_PATH }}/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=${{ env.ABI }} \
+            -DANDROID_PLATFORM=android-${{ env.ANDROID_MIN_API }} \
+            -DANDROID_STL=c++_shared \
+            -DXORON_ANDROID_BUILD=ON \
+            -DXORON_OPENSSL_ROOT=${{ github.workspace }}/openssl-android-${{ env.ABI }}/install
+      
+      - name: Build Library
+        run: |
+          cmake --build build --config Release -j$(nproc)
+      
+      - name: Upload Library Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xoron-android-lib
+          path: build/libxoron.so
+          retention-days: 1
+
+  # Build test application
+  build-android-tests:
+    name: Build Android Test App
+    runs-on: ubuntu-latest
+    needs: build-android-library
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;${{ env.NDK_VERSION }};build-tools;34.0.0'
+      
+      - name: Set NDK environment
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          echo "NDK_PATH=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+      
+      - name: Download Library Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: xoron-android-lib
+          path: build/
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+      
+      - name: Build Test Library
+        run: |
+          cd src/src/tests/android
+          
+          cmake -B build-tests -S . \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_TOOLCHAIN_FILE=${{ env.NDK_PATH }}/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=${{ env.ABI }} \
+            -DANDROID_PLATFORM=android-${{ env.ANDROID_MIN_API }} \
+            -DANDROID_STL=c++_shared
+          
+          cmake --build build-tests --config Debug
+      
+      - name: Upload Test Library Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xoron-android-test-lib
+          path: src/src/tests/android/build-tests/libxoron_test_integration.so
+          retention-days: 1
+
+  # Run tests on emulator
+  run-android-tests:
+    name: Run Android Integration Tests
+    runs-on: macos-latest  # Use macOS for better Android emulator support
+    needs: build-android-tests
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools;platforms;android-34;emulator;system-images;android-34;google_apis;arm64-v8a'
+      
+      - name: Download Test Library
+        uses: actions/download-artifact@v4
+        with:
+          name: xoron-android-test-lib
+          path: src/src/tests/android/build-tests/
+      
+      - name: Create Test APK
+        run: |
+          cd src/src/tests/android
+          
+          # Create Android.mk for ndk-build
+          cat > Android.mk << 'EOF'
+LOCAL_PATH := $(call my-dir)
+include $(CLEAR_VARS)
+LOCAL_MODULE := xoron_test_integration
+LOCAL_SRC_FILES := build-tests/libxoron_test_integration.so
+LOCAL_LDLIBS := -llog -landroid
+include $(PREBUILT_SHARED_LIBRARY)
+EOF
+          
+          # Build test APK using gradle
+          chmod +x gradlew
+          ./gradlew assembleDebug
+      
+      - name: Setup Android Emulator
+        run: |
+          # Create AVD
+          echo "no" | avdmanager create avd -n xoron_test -k "system-images;android-34;google_apis;arm64-v8a" -d "pixel_6"
+          
+          # Start emulator in background
+          $ANDROID_HOME/emulator/emulator -avd xoron_test -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect &
+          EMULATOR_PID=$!
+          
+          # Wait for boot
+          adb wait-for-device
+          echo "Emulator started"
+          
+          # Wait for system to be fully booted
+          while [[ "$(adb shell getprop sys.boot_completed | tr -d '\r')" != "1" ]]; do
+            sleep 2
+          done
+          
+          echo "Emulator ready"
+      
+      - name: Install and Run Tests
+        run: |
+          # Install test APK
+          adb install -r src/src/tests/android/build/outputs/apk/debug/android-tests-debug.apk
+          
+          # Push native library
+          adb push src/src/tests/android/build-tests/libxoron_test_integration.so /data/local/tmp/
+          
+          # Run tests
+          adb shell am start -n com.xoron.tests/.XoronTestRunner
+          
+          # Wait for tests
+          sleep 15
+          
+          # Capture logs
+          adb logcat -d | grep "XoronTest" > test_results.txt
+          
+          # Display results
+          echo "=== Test Results ==="
+          cat test_results.txt
+      
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-results
+          path: test_results.txt
+          retention-days: 7
+
+  # Summary job
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [run-android-tests]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download test results
+        uses: actions/download-artifact@v4
+      
+      - name: Generate Summary
+        run: |
+          echo "## Android Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Groups" >> $GITHUB_STEP_SUMMARY
+          echo "- Platform Detection" >> $GITHUB_STEP_SUMMARY
+          echo "- Logging (android_log)" >> $GITHUB_STEP_SUMMARY
+          echo "- Filesystem Operations" >> $GITHUB_STEP_SUMMARY
+          echo "- Memory Management" >> $GITHUB_STEP_SUMMARY
+          echo "- Performance Benchmarks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "All test results are available as workflow artifacts." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Platform" >> $GITHUB_STEP_SUMMARY
+          echo "- Android API 29+ (Android 10+)" >> $GITHUB_STEP_SUMMARY
+          echo "- ARM64-v8a architecture" >> $GITHUB_STEP_SUMMARY
+          echo "- Android NDK with JNI" >> $GITHUB_STEP_SUMMARY
