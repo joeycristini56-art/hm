@@ -300,6 +300,20 @@ endif()
 
 add_library(xoron SHARED ${XORON_SOURCES})
 
+# Explicitly set .mm files to use Objective-C++ language for iOS builds
+if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+    set_source_files_properties(
+        xoron_env.mm
+        xoron_console.mm
+        xoron_filesystem.mm
+        xoron_memory.mm
+        xoron_luau.mm
+        xoron_drawing.mm
+        xoron_ui.mm
+        PROPERTIES LANGUAGE OBJCXX
+    )
+endif()
+
 # Link Android-specific libraries if building for Android
 if(XORON_ANDROID_BUILD)
     target_link_libraries(xoron PRIVATE
