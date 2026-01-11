@@ -255,6 +255,7 @@ void xoron_ios_ui_toggle(void);
 void xoron_ios_haptic_feedback(int style);
 void xoron_ios_console_print(const char* message, int type);
 void xoron_ios_set_lua_state(lua_State* L);
+lua_State* xoron_get_lua_state(void);
 
 /* iOS drawing functions */
 #if defined(__OBJC__) || defined(__cplusplus)
