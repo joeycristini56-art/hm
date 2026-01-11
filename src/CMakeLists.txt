@@ -269,19 +269,19 @@ FetchContent_MakeAvailable(luau httplib lz4)
 
 # Main library sources
 set(XORON_SOURCES
-    xoron_luau.cpp
+    xoron_luau.mm
     xoron_http.cpp
     xoron_crypto.cpp
-    xoron_env.cpp
-    xoron_filesystem.cpp
-    xoron_memory.cpp
+    xoron_env.mm
+    xoron_filesystem.mm
+    xoron_memory.mm
     xoron_debug.cpp
-    xoron_console.cpp
-    xoron_drawing.cpp
+    xoron_console.mm
+    xoron_drawing.mm
     xoron_websocket.cpp
     xoron_input.cpp
     xoron_cache.cpp
-    xoron_ui.cpp)
+    xoron_ui.mm)
 
 # iOS-specific configuration
 if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
@@ -299,23 +299,6 @@ if(XORON_ANDROID_BUILD)
 endif()
 
 add_library(xoron SHARED ${XORON_SOURCES})
-
-# iOS-specific file configuration - must be after add_library
-if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
-    # For iOS, compile files that include Objective-C headers as Objective-C++
-    # These files use NSLog and Foundation framework
-    # Note: These files include xoron.h which includes Foundation headers on iOS
-    set_source_files_properties(
-        xoron_env.cpp
-        xoron_console.cpp
-        xoron_filesystem.cpp
-        xoron_memory.cpp
-        xoron_luau.cpp
-        xoron_drawing.cpp
-        xoron_ui.cpp
-        PROPERTIES LANGUAGE OBJCXX
-    )
-endif()
 
 # Link Android-specific libraries if building for Android
 if(XORON_ANDROID_BUILD)
