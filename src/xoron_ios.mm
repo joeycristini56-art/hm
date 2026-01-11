@@ -15,7 +15,7 @@
 
 #include "xoron.h"
 #include "lua.h"
-#include "lauxlib.h"
+#include "lualib.h"
 
 // ============================================================================
 // Theme Colors - Purple & Black
