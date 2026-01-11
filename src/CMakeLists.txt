@@ -290,7 +290,18 @@ if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
     
     # Add iOS-specific source
     list(APPEND XORON_SOURCES xoron_ios.mm)
-    
+endif()
+
+# Add Android-specific source for Android builds
+if(XORON_ANDROID_BUILD)
+    list(APPEND XORON_SOURCES xoron_android.cpp)
+    # Android-specific libraries - will be linked after add_library
+endif()
+
+add_library(xoron SHARED ${XORON_SOURCES})
+
+# iOS-specific file configuration - must be after add_library
+if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
     # For iOS, compile files that include Objective-C headers as Objective-C++
     # These files use NSLog and Foundation framework
     # Note: These files include xoron.h which includes Foundation headers on iOS
@@ -305,14 +316,6 @@ if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
         PROPERTIES LANGUAGE OBJCXX
     )
 endif()
-
-# Add Android-specific source for Android builds
-if(XORON_ANDROID_BUILD)
-    list(APPEND XORON_SOURCES xoron_android.cpp)
-    # Android-specific libraries - will be linked after add_library
-endif()
-
-add_library(xoron SHARED ${XORON_SOURCES})
 
 # Link Android-specific libraries if building for Android
 if(XORON_ANDROID_BUILD)
