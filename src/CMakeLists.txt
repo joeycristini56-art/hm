@@ -273,17 +273,17 @@ FetchContent_MakeAvailable(luau httplib lz4)
 # Main library sources
 set(XORON_SOURCES
     xoron_luau.mm
-    xoron_http.cpp
-    xoron_crypto.cpp
+    xoron_http.mm
+    xoron_crypto.mm
     xoron_env.mm
     xoron_filesystem.mm
     xoron_memory.mm
-    xoron_debug.cpp
+    xoron_debug.mm
     xoron_console.mm
     xoron_drawing.mm
-    xoron_websocket.cpp
-    xoron_input.cpp
-    xoron_cache.cpp
+    xoron_websocket.mm
+    xoron_input.mm
+    xoron_cache.mm
     xoron_ui.mm)
 
 # iOS-specific configuration
@@ -310,6 +310,12 @@ if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
         xoron_luau.mm
         xoron_drawing.mm
         xoron_ui.mm
+        xoron_http.mm
+        xoron_crypto.mm
+        xoron_websocket.mm
+        xoron_debug.mm
+        xoron_cache.mm
+        xoron_input.mm
         PROPERTIES LANGUAGE OBJCXX
     )
 endif()
