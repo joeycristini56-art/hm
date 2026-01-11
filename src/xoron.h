@@ -248,6 +248,9 @@ void xoron_register_ui(lua_State* L);
 void xoron_register_ios(lua_State* L);
 
 /* iOS native UI functions */
+#ifdef __cplusplus
+extern "C" {
+#endif
 void xoron_ios_ui_init(void);
 void xoron_ios_ui_show(void);
 void xoron_ios_ui_hide(void);
@@ -256,6 +259,9 @@ void xoron_ios_haptic_feedback(int style);
 void xoron_ios_console_print(const char* message, int type);
 void xoron_ios_set_lua_state(lua_State* L);
 lua_State* xoron_get_lua_state(void);
+#ifdef __cplusplus
+}
+#endif
 
 /* iOS drawing functions */
 #if defined(__OBJC__) || defined(__cplusplus)
