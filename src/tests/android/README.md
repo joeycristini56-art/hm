@@ -18,7 +18,7 @@ android/
 ## Prerequisites
 
 ### Software Requirements
-- **Android NDK**: r26.1.10909125 or newer
+- **Android NDK**: r25.2.9519653 or newer
 - **Android SDK**: API 29+ (Android 10)
 - **CMake**: 3.16+
 - **OpenSSL**: Built for Android (arm64-v8a, armeabi-v7a, x86, x86_64)
@@ -588,7 +588,7 @@ jobs:
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'ndk;26.1.10909125'
+          packages: 'ndk;25.2.9519653'
       
       - name: Setup OpenSSL
         run: |

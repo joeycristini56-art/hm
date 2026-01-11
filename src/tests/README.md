@@ -463,7 +463,7 @@ jobs:
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'ndk;26.1.10909125'
+          packages: 'ndk;25.2.9519653'
       
       - name: Build Tests
         run: |

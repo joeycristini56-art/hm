@@ -8,7 +8,7 @@ This guide covers complete integration of Xoron into Android applications (Andro
 
 ### Software Requirements
 - **Android Studio**: 2022.3.1+ (Giraffe or later)
-- **Android NDK**: r26.1.10909125+
+- **Android NDK**: r25.2.9519653+
 - **Android SDK**: API 29+ (Android 10)
 - **CMake**: 3.16+
 - **Java JDK**: 11+
