@@ -304,25 +304,6 @@ if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
         xoron_ui.cpp
         PROPERTIES LANGUAGE OBJCXX
     )
-    
-    # Add iOS-specific compiler flags
-    target_compile_options(xoron PRIVATE
-        -fobjc-arc
-        -fobjc-weak
-    )
-    
-    # Ensure Foundation framework is properly linked
-    target_link_libraries(xoron PRIVATE
-        "-framework Foundation"
-        "-framework CoreFoundation"
-        "-framework CoreGraphics"
-        "-framework CoreText"
-        "-framework Security"
-        "-framework UIKit"
-        "-framework WebKit"
-        "-framework QuartzCore"
-        objc
-    )
 endif()
 
 # Add Android-specific source for Android builds
@@ -385,6 +366,25 @@ if(XORON_IOS_BUILD)
         SUFFIX ".dylib"
         PREFIX "lib"
         OUTPUT_NAME "xoron")
+    
+    # Add iOS-specific compiler flags
+    target_compile_options(xoron PRIVATE
+        -fobjc-arc
+        -fobjc-weak
+    )
+    
+    # Ensure Foundation framework is properly linked
+    target_link_libraries(xoron PRIVATE
+        "-framework Foundation"
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework CoreText"
+        "-framework Security"
+        "-framework UIKit"
+        "-framework WebKit"
+        "-framework QuartzCore"
+        objc
+    )
         
 elseif(XORON_ANDROID_BUILD)
     set_target_properties(xoron PROPERTIES
