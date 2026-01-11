@@ -293,6 +293,7 @@ if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
     
     # For iOS, compile files that include Objective-C headers as Objective-C++
     # These files use NSLog and Foundation framework
+    # Note: These files include xoron.h which includes Foundation headers on iOS
     set_source_files_properties(
         xoron_env.cpp
         xoron_console.cpp
@@ -302,6 +303,25 @@ if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
         xoron_drawing.cpp
         xoron_ui.cpp
         PROPERTIES LANGUAGE OBJCXX
+    )
+    
+    # Add iOS-specific compiler flags
+    target_compile_options(xoron PRIVATE
+        -fobjc-arc
+        -fobjc-weak
+    )
+    
+    # Ensure Foundation framework is properly linked
+    target_link_libraries(xoron PRIVATE
+        "-framework Foundation"
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework CoreText"
+        "-framework Security"
+        "-framework UIKit"
+        "-framework WebKit"
+        "-framework QuartzCore"
+        objc
     )
 endif()
 
@@ -365,20 +385,6 @@ if(XORON_IOS_BUILD)
         SUFFIX ".dylib"
         PREFIX "lib"
         OUTPUT_NAME "xoron")
-    
-    # iOS frameworks - matching reference dylib requirements
-    # Required: Foundation, CoreFoundation, CoreGraphics, CoreText, Security, UIKit, WebKit
-    # System libs: libobjc.A.dylib, libc++.1.dylib, libSystem.B.dylib
-    target_link_libraries(xoron PRIVATE
-        "-framework Foundation"
-        "-framework CoreFoundation"
-        "-framework CoreGraphics"
-        "-framework CoreText"
-        "-framework Security"
-        "-framework UIKit"
-        "-framework WebKit"
-        "-framework QuartzCore"
-        objc)  # Objective-C runtime for iOS
         
 elseif(XORON_ANDROID_BUILD)
     set_target_properties(xoron PROPERTIES

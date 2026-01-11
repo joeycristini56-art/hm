@@ -30,7 +30,7 @@ on:
 env:
   XORON_VERSION: "2.0.0"
   ANDROID_MIN_API: "29"  # Android 10
-  NDK_VERSION: "26.1.10909125"
+  NDK_VERSION: "25.2.9519653"
   ABI: arm64-v8a
   OPENSSL_TARGET: android-arm64
 
