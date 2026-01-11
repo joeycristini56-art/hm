@@ -51,6 +51,9 @@ if(XORON_IOS_BUILD)
     message(STATUS "=== Building for iOS ARM64 (.dylib) ===")
     message(STATUS "iOS Deployment Target: ${XORON_IOS_DEPLOYMENT_TARGET}")
     
+    # Enable Objective-C++ language for iOS builds
+    enable_language(OBJCXX)
+    
     # iOS platform definitions
     add_compile_definitions(TARGET_OS_IPHONE=1)
     add_compile_definitions(__APPLE__=1)
@@ -285,9 +288,6 @@ set(XORON_SOURCES
 
 # iOS-specific configuration
 if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
-    # Enable Objective-C++ language
-    enable_language(OBJCXX)
-    
     # Add iOS-specific source
     list(APPEND XORON_SOURCES xoron_ios.mm)
 endif()
