@@ -403,32 +403,35 @@ static void simulate_iOS_touch(float x, float y, bool press) {
 // iOS game controller support
 static void setup_iOS_game_controller() {
     // Check for game controllers
-    if (@available(iOS 14.0, *)) {
-        [GCController controllersDidChangeHandler:^{
-            for (GCController *controller in [GCController controllers]) {
-                if (controller.extendedGamepad) {
-                    // Handle controller input
-                    controller.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *gamepad, GCControllerElement *element) {
-                        // Map controller buttons to keycodes
-                        if (gamepad.buttonA.pressed) xoron_input_set_key(97, true); // A key
-                        else xoron_input_set_key(97, false);
-                        
-                        if (gamepad.buttonB.pressed) xoron_input_set_key(98, true); // B key
-                        else xoron_input_set_key(98, false);
-                        
-                        if (gamepad.dpad.up.pressed) xoron_input_set_key(273, true); // Up arrow
-                        else xoron_input_set_key(273, false);
-                        
-                        if (gamepad.dpad.down.pressed) xoron_input_set_key(274, true); // Down arrow
-                        else xoron_input_set_key(274, false);
-                        
-                        if (gamepad.dpad.left.pressed) xoron_input_set_key(276, true); // Left arrow
-                        else xoron_input_set_key(276, false);
-                        
-                        if (gamepad.dpad.right.pressed) xoron_input_set_key(275, true); // Right arrow
-                        else xoron_input_set_key(275, false);
-                    };
-                }
+    if (@available(iOS 7.0, *)) {
+        // Set up controller discovery notification
+        [[NSNotificationCenter defaultCenter] addObserverForName:GCControllerDidConnectNotification
+                                                            object:nil
+                                                             queue:nil
+                                                        usingBlock:^(NSNotification *note) {
+            GCController *controller = (GCController *)note.object;
+            if (controller.extendedGamepad) {
+                // Handle controller input
+                controller.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *gamepad, GCControllerElement *element) {
+                    // Map controller buttons to keycodes
+                    if (gamepad.buttonA.pressed) xoron_input_set_key(97, true); // A key
+                    else xoron_input_set_key(97, false);
+                    
+                    if (gamepad.buttonB.pressed) xoron_input_set_key(98, true); // B key
+                    else xoron_input_set_key(98, false);
+                    
+                    if (gamepad.dpad.up.pressed) xoron_input_set_key(273, true); // Up arrow
+                    else xoron_input_set_key(273, false);
+                    
+                    if (gamepad.dpad.down.pressed) xoron_input_set_key(274, true); // Down arrow
+                    else xoron_input_set_key(274, false);
+                    
+                    if (gamepad.dpad.left.pressed) xoron_input_set_key(276, true); // Left arrow
+                    else xoron_input_set_key(276, false);
+                    
+                    if (gamepad.dpad.right.pressed) xoron_input_set_key(275, true); // Right arrow
+                    else xoron_input_set_key(275, false);
+                };
             }
         }];
     }
