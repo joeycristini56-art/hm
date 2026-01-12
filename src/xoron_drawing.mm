@@ -330,7 +330,7 @@ static void ios_draw_image(const DrawingObject* obj) {
                     
                     if (uiImage) {
                         // Get CGImage from UIImage
-                        CGImageRef cgImage = (CGImageRef)((id(*)(id, SEL))objc_msgSend)(
+                        CGImageRef cgImage = (__bridge CGImageRef)((id(*)(id, SEL))objc_msgSend)(
                             uiImage, sel_registerName("CGImage"));
                         
                         if (cgImage) {

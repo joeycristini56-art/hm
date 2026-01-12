@@ -51,6 +51,9 @@ if(XORON_IOS_BUILD)
     message(STATUS "=== Building for iOS ARM64 (.dylib) ===")
     message(STATUS "iOS Deployment Target: ${XORON_IOS_DEPLOYMENT_TARGET}")
     
+    # Enable Objective-C++ language for iOS builds
+    enable_language(OBJCXX)
+    
     # iOS platform definitions
     add_compile_definitions(TARGET_OS_IPHONE=1)
     add_compile_definitions(__APPLE__=1)
@@ -269,60 +272,24 @@ FetchContent_MakeAvailable(luau httplib lz4)
 
 # Main library sources
 set(XORON_SOURCES
-    xoron_luau.cpp
-    xoron_http.cpp
-    xoron_crypto.cpp
-    xoron_env.cpp
-    xoron_filesystem.cpp
-    xoron_memory.cpp
-    xoron_debug.cpp
-    xoron_console.cpp
-    xoron_drawing.cpp
-    xoron_websocket.cpp
-    xoron_input.cpp
-    xoron_cache.cpp
-    xoron_ui.cpp)
+    xoron_luau.mm
+    xoron_http.mm
+    xoron_crypto.mm
+    xoron_env.mm
+    xoron_filesystem.mm
+    xoron_memory.mm
+    xoron_debug.mm
+    xoron_console.mm
+    xoron_drawing.mm
+    xoron_websocket.mm
+    xoron_input.mm
+    xoron_cache.mm
+    xoron_ui.mm)
 
 # iOS-specific configuration
 if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
-    # Enable Objective-C++ language
-    enable_language(OBJCXX)
-    
     # Add iOS-specific source
     list(APPEND XORON_SOURCES xoron_ios.mm)
-    
-    # For iOS, compile files that include Objective-C headers as Objective-C++
-    # These files use NSLog and Foundation framework
-    # Note: These files include xoron.h which includes Foundation headers on iOS
-    set_source_files_properties(
-        xoron_env.cpp
-        xoron_console.cpp
-        xoron_filesystem.cpp
-        xoron_memory.cpp
-        xoron_luau.cpp
-        xoron_drawing.cpp
-        xoron_ui.cpp
-        PROPERTIES LANGUAGE OBJCXX
-    )
-    
-    # Add iOS-specific compiler flags
-    target_compile_options(xoron PRIVATE
-        -fobjc-arc
-        -fobjc-weak
-    )
-    
-    # Ensure Foundation framework is properly linked
-    target_link_libraries(xoron PRIVATE
-        "-framework Foundation"
-        "-framework CoreFoundation"
-        "-framework CoreGraphics"
-        "-framework CoreText"
-        "-framework Security"
-        "-framework UIKit"
-        "-framework WebKit"
-        "-framework QuartzCore"
-        objc
-    )
 endif()
 
 # Add Android-specific source for Android builds
@@ -332,6 +299,26 @@ if(XORON_ANDROID_BUILD)
 endif()
 
 add_library(xoron SHARED ${XORON_SOURCES})
+
+# Explicitly set .mm files to use Objective-C++ language for iOS builds
+if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+    set_source_files_properties(
+        xoron_env.mm
+        xoron_console.mm
+        xoron_filesystem.mm
+        xoron_memory.mm
+        xoron_luau.mm
+        xoron_drawing.mm
+        xoron_ui.mm
+        xoron_http.mm
+        xoron_crypto.mm
+        xoron_websocket.mm
+        xoron_debug.mm
+        xoron_cache.mm
+        xoron_input.mm
+        PROPERTIES LANGUAGE OBJCXX
+    )
+endif()
 
 # Link Android-specific libraries if building for Android
 if(XORON_ANDROID_BUILD)
@@ -385,6 +372,25 @@ if(XORON_IOS_BUILD)
         SUFFIX ".dylib"
         PREFIX "lib"
         OUTPUT_NAME "xoron")
+    
+    # Add iOS-specific compiler flags
+    target_compile_options(xoron PRIVATE
+        -fobjc-arc
+        -fobjc-weak
+    )
+    
+    # Ensure Foundation framework is properly linked
+    target_link_libraries(xoron PRIVATE
+        "-framework Foundation"
+        "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework CoreText"
+        "-framework Security"
+        "-framework UIKit"
+        "-framework WebKit"
+        "-framework QuartzCore"
+        objc
+    )
         
 elseif(XORON_ANDROID_BUILD)
     set_target_properties(xoron PROPERTIES

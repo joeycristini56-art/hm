@@ -15,6 +15,7 @@
 
 #include "xoron.h"
 #include "lua.h"
+#include "lualib.h"
 
 // ============================================================================
 // Theme Colors - Purple & Black
@@ -455,7 +456,6 @@ typedef NS_ENUM(NSInteger, XoronMessageType) {
     [self addConsoleMessage:@"Executing script..." type:XoronMessageTypeInfo];
     
     // Call the Lua execution function
-    extern lua_State* xoron_get_lua_state(void);
     lua_State* L = xoron_get_lua_state();
     if (L) {
         lua_getglobal(L, "xoron_execute");
