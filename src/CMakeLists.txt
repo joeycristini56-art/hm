@@ -320,7 +320,8 @@ if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
         PROPERTIES LANGUAGE OBJCXX
     )
 elseif(XORON_ANDROID_BUILD)
-    # Android builds: Force .mm files to compile as C++ (no Objective-C runtime)
+    # Android builds: Force .mm files to compile as pure C++ (no Objective-C runtime)
+    # Use -x c++ flag to override file extension detection and disable ObjC features
     set_source_files_properties(
         xoron_env.mm
         xoron_console.mm
@@ -335,7 +336,9 @@ elseif(XORON_ANDROID_BUILD)
         xoron_debug.mm
         xoron_cache.mm
         xoron_input.mm
-        PROPERTIES LANGUAGE CXX
+        PROPERTIES 
+            LANGUAGE CXX
+            COMPILE_FLAGS "-x c++"
     )
 endif()
 
