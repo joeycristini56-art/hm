@@ -138,7 +138,7 @@ jobs:
       
       - name: Build Test Suite
         run: |
-          cd src/src/tests/ios
+          cd src/tests/ios
           
           cmake -B build-tests -S . \
             -G Ninja \
@@ -166,7 +166,7 @@ jobs:
           xcrun simctl boot $SIMULATOR_ID || true
           
           # Install and run test app
-          cd src/src/tests/ios/build-tests
+          cd src/tests/ios/build-tests
           xcrun simctl install $SIMULATOR_ID XoronIOSIntegrationTests.app
           xcrun simctl launch $SIMULATOR_ID com.xoron.ios.tests
           
@@ -189,8 +189,8 @@ jobs:
         with:
           name: ios-test-results-${{ matrix.test_group }}
           path: |
-            src/src/tests/ios/build-tests/test_logs.txt
-            src/src/tests/ios/build-tests/*.log
+            src/tests/ios/build-tests/test_logs.txt
+            src/tests/ios/build-tests/*.log
           retention-days: 7
 
   # Summary job
