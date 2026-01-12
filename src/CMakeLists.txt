@@ -300,8 +300,9 @@ endif()
 
 add_library(xoron SHARED ${XORON_SOURCES})
 
-# Explicitly set .mm files to use Objective-C++ language for iOS builds
+# Set language for .mm files based on platform
 if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
+    # iOS builds: Use Objective-C++ for .mm files
     set_source_files_properties(
         xoron_env.mm
         xoron_console.mm
@@ -317,6 +318,24 @@ if(XORON_IOS_BUILD OR (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
         xoron_cache.mm
         xoron_input.mm
         PROPERTIES LANGUAGE OBJCXX
+    )
+elseif(XORON_ANDROID_BUILD)
+    # Android builds: Force .mm files to compile as C++ (no Objective-C runtime)
+    set_source_files_properties(
+        xoron_env.mm
+        xoron_console.mm
+        xoron_filesystem.mm
+        xoron_memory.mm
+        xoron_luau.mm
+        xoron_drawing.mm
+        xoron_ui.mm
+        xoron_http.mm
+        xoron_crypto.mm
+        xoron_websocket.mm
+        xoron_debug.mm
+        xoron_cache.mm
+        xoron_input.mm
+        PROPERTIES LANGUAGE CXX
     )
 endif()
 
@@ -389,6 +408,7 @@ if(XORON_IOS_BUILD)
         "-framework UIKit"
         "-framework WebKit"
         "-framework QuartzCore"
+        "-framework GameController"
         objc
     )
         
